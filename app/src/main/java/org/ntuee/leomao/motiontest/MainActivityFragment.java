@@ -128,7 +128,7 @@ public class MainActivityFragment extends Fragment {
         @Override
         public void run() {
             try {
-                socket = new Socket("140.112.18.212", 12345);
+                socket = new Socket("140.112.18.210", 12345);
                 writer = new OutputStreamWriter(socket.getOutputStream());
                 reader = new InputStreamReader(socket.getInputStream());
                 connected = true;
