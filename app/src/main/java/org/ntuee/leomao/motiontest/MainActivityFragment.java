@@ -1,7 +1,8 @@
 package org.ntuee.leomao.motiontest;
 
 import android.content.Context;
-import android.graphics.Matrix;
+import android.graphics.SurfaceTexture;
+import android.hardware.Camera;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -10,6 +11,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.support.v4.app.Fragment;
 import android.os.Bundle;
+import android.util.Base64;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -40,6 +42,9 @@ public class MainActivityFragment extends Fragment {
     private Sensor gyroscope;
 //    private Sensor gmeter;
 //    private Sensor mmeter;
+
+    private Camera camera = null;
+    private SurfaceTexture prevsurf;
 
     private View rootview;
     private TextView cnttext = null;
@@ -80,7 +85,7 @@ public class MainActivityFragment extends Fragment {
         @Override
         public void onSensorChanged(SensorEvent event) {
             if (started) {
-                socketHandler.post(new DataSender("accel", event.values,
+                socketHandler.post(new DataSender("accel", getFloatData(event.values),
                         event.timestamp));
             }
         }
@@ -95,7 +100,7 @@ public class MainActivityFragment extends Fragment {
         @Override
         public void onSensorChanged(SensorEvent event) {
             if (started) {
-                socketHandler.post(new DataSender("gyroscope", event.values,
+                socketHandler.post(new DataSender("gyroscope", getFloatData(event.values),
                         event.timestamp));
             }
         }
@@ -151,6 +156,8 @@ public class MainActivityFragment extends Fragment {
                 socket = new Socket(datahost, port);
                 writer = new OutputStreamWriter(socket.getOutputStream());
                 reader = new InputStreamReader(socket.getInputStream());
+                if (camera != null)
+                    camera.startPreview();
                 connected = true;
                 started = true;
                 Log.d("DEBUG", "connected");
@@ -202,6 +209,8 @@ public class MainActivityFragment extends Fragment {
     private Runnable stoper = new Runnable() {
         @Override
         public void run() {
+            if (camera != null)
+                camera.stopPreview();
             started = false;
 //            socketHandler.removeCallbacks(updater);
             JSONObject data = new JSONObject();
@@ -224,12 +233,12 @@ public class MainActivityFragment extends Fragment {
 
     private class DataSender implements Runnable {
         private String type;
-        private float [] data = new float[3];
+        private String data = "";
         private long time;
-        public DataSender(String type, float[] data, long time) {
+        public DataSender(String type, String data, long time) {
             this.type = type;
             this.time = time;
-            System.arraycopy(data, 0, this.data, 0, 3);
+            this.data = data;
         }
 
         @Override
@@ -240,10 +249,7 @@ public class MainActivityFragment extends Fragment {
             JSONObject data = new JSONObject();
             try {
                 data.put("time", this.time);
-                String datastr = String.format("[%.4f,%.4f,%.4f]",
-                        this.data[0], this.data[1], this.data[2]);
-                data.put("data", datastr);
-                data.put("time", this.time);
+                data.put("data", this.data);
                 data.put("type", this.type);
                 String s = data.toString() + "\n";
                 writer.write(s);
@@ -274,6 +280,8 @@ public class MainActivityFragment extends Fragment {
         socketThread = new HandlerThread("socket");
         socketThread.start();
         socketHandler = new Handler(socketThread.getLooper());
+        prevsurf = new SurfaceTexture(10);
+        initCamera();
     }
 
     @Override
@@ -332,18 +340,25 @@ public class MainActivityFragment extends Fragment {
     public void onResume() {
         super.onResume();
         registerListener();
+        initCamera();
     }
 
     @Override
     public void onPause() {
         super.onPause();
         unRegisterListener();
+        if (camera != null)
+            camera.release();
     }
 
     @Override
     public void onStop() {
         super.onPause();
         unRegisterListener();
+        if (camera != null) {
+            camera.release();
+            camera = null;
+        }
     }
 
     private void registerListener() {
@@ -358,6 +373,52 @@ public class MainActivityFragment extends Fragment {
         smanager.unregisterListener(rhandler);
 //        smanager.unregisterListener(ghandler);
 //        smanager.unregisterListener(mhandler);
+    }
+
+
+    private String getFloatData(float [] data) {
+        String datastr = String.format("[%.4f", data[0]);
+        for (int i = 1; i < data.length; i++)
+            datastr += String.format(",%.4f", data[i]);
+        datastr += "]";
+        return datastr;
+    }
+
+
+    private long cameratime = 0;
+
+    private void initCamera() {
+        if (camera != null) {
+            camera.release();
+            camera = null;
+        }
+        camera = Camera.open();
+        if (camera != null) {
+            try {
+                camera.setPreviewTexture(prevsurf);
+                camera.setPreviewCallback(new Camera.PreviewCallback() {
+                    @Override
+                    public void onPreviewFrame(byte[] data, Camera camera) {
+                        long now = System.nanoTime();
+                        if (now - cameratime < 10000)
+                            return;
+                        cameratime = now;
+                        String imgstr = Base64.encodeToString(data, Base64.DEFAULT);
+                        Log.d("DEBUG", "data length: " + imgstr.length());
+                        //socketHandler.post(new DataSender("camera", imgstr, cameratime));
+                        //socketHandler.post(stoper);
+                    }
+                });
+            }
+            catch (IOException e) {
+                Log.d("DEBUG", "camera concon");
+                camera.release();
+                camera = null;
+            }
+        }
+        else {
+            Log.d("DEBUG", "can't connect camera");
+        }
     }
 
 
