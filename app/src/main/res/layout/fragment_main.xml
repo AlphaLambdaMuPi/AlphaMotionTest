@@ -64,4 +64,10 @@
         android:id="@+id/stop"
         android:layout_gravity="center_horizontal" />
 
+    <TextureView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:id="@+id/camView"
+        android:layout_gravity="center_horizontal" />
+
 </LinearLayout>

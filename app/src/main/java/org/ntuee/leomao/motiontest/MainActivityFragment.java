@@ -1,6 +1,7 @@
 package org.ntuee.leomao.motiontest;
 
 import android.content.Context;
+import android.graphics.ImageFormat;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.hardware.Sensor;
@@ -14,6 +15,7 @@ import android.os.Bundle;
 import android.util.Base64;
 import android.util.Log;
 import android.view.LayoutInflater;
+import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -30,6 +32,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.net.Socket;
+import java.util.ArrayList;
 
 
 /**
@@ -45,6 +48,8 @@ public class MainActivityFragment extends Fragment {
 
     private Camera camera = null;
     private SurfaceTexture prevsurf;
+
+    private TextureView campreview;
 
     private View rootview;
     private TextView cnttext = null;
@@ -70,7 +75,9 @@ public class MainActivityFragment extends Fragment {
     private OutputStreamWriter writer = null;
     private InputStreamReader reader = null;
     private HandlerThread socketThread;
+    private HandlerThread cameraThread;
     private Handler UIHandler = new Handler();
+    private Handler cameraHandler;
     private Handler socketHandler;
     private Socket socket = null;
     private boolean connected = false;
@@ -147,6 +154,31 @@ public class MainActivityFragment extends Fragment {
 //        SensorManager.getOrientation(rotationMatrix, orientation);
 //    }
 
+    private TextureView.SurfaceTextureListener camhandler = new TextureView.SurfaceTextureListener() {
+        @Override
+        public void onSurfaceTextureAvailable(SurfaceTexture surface, int width, int height) {
+            Log.d("DEBUG", "texture done");
+            initCamera();
+        }
+
+        @Override
+        public void onSurfaceTextureSizeChanged(SurfaceTexture surface, int width, int height) {
+
+        }
+
+        @Override
+        public boolean onSurfaceTextureDestroyed(SurfaceTexture surface) {
+            camera.release();
+            camera = null;
+            return true;
+        }
+
+        @Override
+        public void onSurfaceTextureUpdated(SurfaceTexture surface) {
+
+        }
+    };
+
     private Runnable starter = new Runnable() {
         @Override
         public void run() {
@@ -156,8 +188,26 @@ public class MainActivityFragment extends Fragment {
                 socket = new Socket(datahost, port);
                 writer = new OutputStreamWriter(socket.getOutputStream());
                 reader = new InputStreamReader(socket.getInputStream());
-                if (camera != null)
+                if (camera != null) {
+                    camera.setPreviewCallback(new Camera.PreviewCallback() {
+                        @Override
+                        public void onPreviewFrame(byte[] data, Camera camera) {
+                            long now = System.currentTimeMillis();
+                            if (now - cameratime < 1000)
+                                return;
+                            cameratime = now;
+                            String imgstr = Base64.encodeToString(data, Base64.DEFAULT);
+                            Log.d("DEBUG", "data length: " + imgstr.length());
+                            //Log.d("DEBUG", "data: " + imgstr);
+                            for (int i = 0; i < imgstr.length() / 8192; i++) {
+                                int end = Math.min(imgstr.length(), (i + 1) * 8192);
+                                socketHandler.post(new DataSender("camera", imgstr.substring(i * 8192, end), cameratime));
+                            }
+                            //socketHandler.post(stoper);
+                        }
+                    });
                     camera.startPreview();
+                }
                 connected = true;
                 started = true;
                 Log.d("DEBUG", "connected");
@@ -254,6 +304,8 @@ public class MainActivityFragment extends Fragment {
                 String s = data.toString() + "\n";
                 writer.write(s);
                 datacnt += 1;
+                if (this.type.equals("camera"))
+                    Log.d("DEBUG", "camera data sent");
                 UIHandler.post(updateUI);
             }
             catch (JSONException e) {
@@ -280,8 +332,10 @@ public class MainActivityFragment extends Fragment {
         socketThread = new HandlerThread("socket");
         socketThread.start();
         socketHandler = new Handler(socketThread.getLooper());
+        cameraThread = new HandlerThread("camera");
+        cameraThread.start();
+        cameraHandler = new Handler(cameraThread.getLooper());
         prevsurf = new SurfaceTexture(10);
-        initCamera();
     }
 
     @Override
@@ -293,6 +347,8 @@ public class MainActivityFragment extends Fragment {
         porttext = (EditText) rootview.findViewById(R.id.port);
         startbtn = (Button) rootview.findViewById(R.id.start);
         stopbtn = (Button) rootview.findViewById(R.id.stop);
+        campreview = (TextureView) rootview.findViewById(R.id.camView);
+        campreview.setSurfaceTextureListener(camhandler);
         startbtn.setOnClickListener(new Button.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -388,37 +444,37 @@ public class MainActivityFragment extends Fragment {
     private long cameratime = 0;
 
     private void initCamera() {
-        if (camera != null) {
-            camera.release();
-            camera = null;
-        }
-        camera = Camera.open();
-        if (camera != null) {
-            try {
-                camera.setPreviewTexture(prevsurf);
-                camera.setPreviewCallback(new Camera.PreviewCallback() {
-                    @Override
-                    public void onPreviewFrame(byte[] data, Camera camera) {
-                        long now = System.nanoTime();
-                        if (now - cameratime < 10000)
-                            return;
-                        cameratime = now;
-                        String imgstr = Base64.encodeToString(data, Base64.DEFAULT);
-                        Log.d("DEBUG", "data length: " + imgstr.length());
-                        //socketHandler.post(new DataSender("camera", imgstr, cameratime));
-                        //socketHandler.post(stoper);
+        cameraHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (camera != null) {
+                    camera.release();
+                    camera = null;
+                }
+                camera = Camera.open();
+                if (camera != null) {
+                    try {
+                        Camera.Parameters p = camera.getParameters();
+//                        ArrayList<Integer> ssf = (ArrayList<Integer>) p.getSupportedPreviewFormats();
+//                        String loggg = "";
+//                        for (int i = 0; i < ssf.size(); i++)
+//                            loggg += ssf.get(i) + " ";
+//                        Log.d("DEUBG", "formats: " + loggg);
+                        p.setPreviewSize(320, 240);
+                        camera.setParameters(p);
+                        camera.setPreviewTexture(campreview.getSurfaceTexture());
                     }
-                });
+                    catch (IOException e) {
+                        Log.d("DEBUG", "camera concon");
+                        camera.release();
+                        camera = null;
+                    }
+                }
+                else {
+                    Log.d("DEBUG", "can't connect camera");
+                }
             }
-            catch (IOException e) {
-                Log.d("DEBUG", "camera concon");
-                camera.release();
-                camera = null;
-            }
-        }
-        else {
-            Log.d("DEBUG", "can't connect camera");
-        }
+        });
     }
 
 
