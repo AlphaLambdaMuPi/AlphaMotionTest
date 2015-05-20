@@ -193,7 +193,7 @@ public class MainActivityFragment extends Fragment {
                         @Override
                         public void onPreviewFrame(byte[] data, Camera camera) {
                             long now = System.currentTimeMillis();
-                            if (now - cameratime < 500)
+                            if (now - cameratime < 1000)
                                 return;
                             cameratime = now;
                             String imgstr = Base64.encodeToString(data, Base64.NO_WRAP);
@@ -203,6 +203,7 @@ public class MainActivityFragment extends Fragment {
                                 int end = Math.min(imgstr.length(), (i + 1) * 8192);
                                 socketHandler.post(new DataSender("camera", imgstr.substring(i * 8192, end), cameratime));
                             }
+                            socketHandler.post(new DataSender("camera", "!", cameratime));
                             //socketHandler.post(stoper);
                         }
                     });
