@@ -193,13 +193,13 @@ public class MainActivityFragment extends Fragment {
                         @Override
                         public void onPreviewFrame(byte[] data, Camera camera) {
                             long now = System.currentTimeMillis();
-                            if (now - cameratime < 1000)
+                            if (now - cameratime < 500)
                                 return;
                             cameratime = now;
-                            String imgstr = Base64.encodeToString(data, Base64.DEFAULT);
+                            String imgstr = Base64.encodeToString(data, Base64.NO_WRAP);
                             Log.d("DEBUG", "data length: " + imgstr.length());
                             //Log.d("DEBUG", "data: " + imgstr);
-                            for (int i = 0; i < imgstr.length() / 8192; i++) {
+                            for (int i = 0; i < (imgstr.length()-1)/8192+1; i++) {
                                 int end = Math.min(imgstr.length(), (i + 1) * 8192);
                                 socketHandler.post(new DataSender("camera", imgstr.substring(i * 8192, end), cameratime));
                             }
@@ -455,12 +455,14 @@ public class MainActivityFragment extends Fragment {
                 if (camera != null) {
                     try {
                         Camera.Parameters p = camera.getParameters();
+//                        p.setPreviewFormat(ImageFormat.JPEG);
 //                        ArrayList<Integer> ssf = (ArrayList<Integer>) p.getSupportedPreviewFormats();
 //                        String loggg = "";
 //                        for (int i = 0; i < ssf.size(); i++)
 //                            loggg += ssf.get(i) + " ";
 //                        Log.d("DEUBG", "formats: " + loggg);
-                        p.setPreviewSize(320, 240);
+                        p.setPreviewSize(640, 480);
+                        p.set("orientation", "portrait");
                         camera.setParameters(p);
                         camera.setPreviewTexture(campreview.getSurfaceTexture());
                     }
